@@ -4,3 +4,4 @@ pandas
 streamlit-js-eval
 geopy
 polyline
+Pillow

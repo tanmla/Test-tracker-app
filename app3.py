@@ -106,3 +106,93 @@ if not st.session_state.tracking_active and len(st.session_state.route_history) 
     
     st.subheader("Riwayat Koordinat")
     st.dataframe(df_final, use_container_width=True)
+
+import streamlit as st
+from PIL import Image
+import io
+import pandas as pd
+from datetime import datetime
+
+# --- FUNGSI KOMPRESI FOTO ---
+def compress_image(uploaded_file, quality=60):
+    # 1. Buka foto dari input kamera
+    img = Image.open(uploaded_file)
+    
+    # 2. Ubah ukuran (Resize) jika terlalu besar (max lebar 800px)
+    if img.width > 800:
+        new_height = int(800 * img.height / img.width)
+        img = img.resize((800, new_height), Image.LANCZOS)
+    
+    # 3. Ubah ke mode RGB (untuk memastikan bisa simpan ke JPEG)
+    if img.mode in ("RGBA", "P"):
+        img = img.convert("RGB")
+        
+    # 4. Simpan ke memory buffer dengan kompresi
+    buffer = io.BytesIO()
+    img.save(buffer, format="JPEG", quality=quality, optimize=True)
+    return buffer.getvalue()
+
+# --- TAMPILAN DASHBOARD ---
+st.divider()
+st.subheader("📸 Dokumentasi Rute (Terkompresi)")
+
+# Inisialisasi galeri di memori (session state)
+if 'photo_gallery' not in st.session_state:
+    st.session_state.photo_gallery = []
+
+# Input Kamera
+img_file = st.camera_input("Ambil Foto Perjalanan")
+
+if img_file:
+    # Proses Kompresi
+    with st.spinner('Sedang mengompres foto...'):
+        compressed_data = compress_image(img_file, quality=50) # Kualitas 50%
+        size_kb = len(compressed_data) / 1024
+
+    # Ambil data lokasi terakhir dari tracking (jika ada)
+    if 'route_history' in st.session_state and st.session_state.route_history:
+        last_loc = st.session_state.route_history[-1]
+        lat, lon = last_loc['lat'], last_loc['lon']
+        km = st.session_state.get('total_km', 0.0)
+    else:
+        lat, lon, km = 0.0, 0.0, 0.0
+
+    # Data Foto untuk Galeri
+    timestamp = datetime.now().strftime("%H:%M:%S")
+    foto_item = {
+        "bin": compressed_data,
+        "lat": lat,
+        "lon": lon,
+        "km": km,
+        "waktu": timestamp,
+        "size": size_kb
+    }
+
+    # Simpan ke galeri (cegah duplikasi saat rerun)
+    if not st.session_state.photo_gallery or st.session_state.photo_gallery[-1]['waktu'] != timestamp:
+        st.session_state.photo_gallery.append(foto_item)
+        st.toast(f"Foto tersimpan! Ukuran: {size_kb:.1f} KB", icon="✅")
+
+# --- TAMPILAN GALERI ---
+if st.session_state.photo_gallery:
+    st.write(f"### 🖼️ Galeri Foto ({len(st.session_state.photo_gallery)} Foto)")
+    
+    # Tampilkan dalam grid 2 kolom
+    cols = st.columns(2)
+    for i, item in enumerate(st.session_state.photo_gallery):
+        with cols[i % 2]:
+            st.image(item['bin'], use_container_width=True)
+            st.caption(f"📍 KM {item['km']:.2f} | 🕒 {item['waktu']} | ⚖️ {item['size']:.1f} KB")
+            
+            # Tombol download untuk tiap foto
+            st.download_button(
+                label=f"💾 Simpan Foto {i+1}",
+                data=item['bin'],
+                file_name=f"foto_km_{item['km']:.2f}.jpg",
+                mime="image/jpeg",
+                key=f"dl_{i}"
+            )
+
+    if st.button("🗑️ Kosongkan Galeri"):
+        st.session_state.photo_gallery = []
+        st.rerun()
